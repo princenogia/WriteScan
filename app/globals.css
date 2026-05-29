@@ -133,3 +133,135 @@
     @apply animate-in slide-in-from-bottom-2 duration-300;
   }
 }
+
+/* ── OCR Markdown Content Styles ────────────────────── */
+.ocr-content {
+  color: var(--foreground);
+  line-height: 1.7;
+}
+
+.ocr-content h1,
+.ocr-content h2,
+.ocr-content h3,
+.ocr-content h4,
+.ocr-content h5,
+.ocr-content h6 {
+  color: var(--foreground);
+  font-weight: 700;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+.ocr-content h1 { font-size: 1.5em; }
+.ocr-content h2 { font-size: 1.3em; }
+.ocr-content h3 { font-size: 1.15em; }
+
+.ocr-content p {
+  color: var(--foreground);
+  margin: 0.5em 0;
+  line-height: 1.7;
+}
+
+.ocr-content ul,
+.ocr-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.ocr-content ul {
+  list-style-type: disc;
+}
+
+.ocr-content ol {
+  list-style-type: decimal;
+}
+
+.ocr-content li {
+  color: var(--foreground);
+  margin: 0.25em 0;
+  display: list-item;
+}
+
+/* Alignment support for inline HTML from LLM */
+.ocr-content div[align="center"],
+.ocr-content center {
+  text-align: center;
+}
+
+.ocr-content div[align="right"] {
+  text-align: right;
+}
+
+.ocr-content strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.ocr-content em {
+  color: var(--foreground);
+}
+
+/* Tables */
+.ocr-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.875em;
+}
+
+.ocr-content th {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  background: var(--secondary);
+  text-align: left;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.ocr-content td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  color: var(--foreground);
+}
+
+/* Code */
+.ocr-content code {
+  background: var(--secondary);
+  color: var(--foreground);
+  padding: 0.15em 0.35em;
+  border-radius: 0.25em;
+  font-size: 0.85em;
+}
+
+.ocr-content pre {
+  background: var(--secondary);
+  border-radius: 0.5em;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.ocr-content pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Blockquotes */
+.ocr-content blockquote {
+  border-left: 3px solid var(--primary);
+  padding-left: 1em;
+  margin: 0.75em 0;
+  color: var(--muted-foreground);
+}
+
+/* Horizontal rules */
+.ocr-content hr {
+  border-color: var(--border);
+  margin: 1.5em 0;
+}
+
+/* Links */
+.ocr-content a {
+  color: var(--primary);
+  text-decoration: underline;
+}

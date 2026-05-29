@@ -1,360 +1,196 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server";
+import { createCanvas } from "@napi-rs/canvas";
+import path from "path";
+import { pathToFileURL } from "url";
 
-async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 5, initialDelayMs = 3000): Promise<T> {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn()
-    } catch (error) {
-      if (i === maxRetries - 1) throw error
+// @ts-ignore
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      if (!errorMsg.includes("429") && !errorMsg.includes("RESOURCE_EXHAUSTED")) {
-        throw error
-      }
+const workerPath = path.join(
+  process.cwd(),
+  "node_modules",
+  "pdfjs-dist",
+  "legacy",
+  "build",
+  "pdf.worker.mjs"
+);
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
-      const delayMs = initialDelayMs * Math.pow(2, i)
-      console.log(`[v0] Rate limited (attempt ${i + 1}/${maxRetries}). Retrying in ${delayMs}ms...`)
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
-    }
-  }
-  throw new Error("Max retries exceeded")
+// Convert file to base64 for Groq
+async function fileToBase64(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  return buffer.toString("base64");
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY
-
-    if (!apiKey) {
-      console.error("[v0] Gemini API key not found")
-      return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 })
-    }
-
-    const formData = await request.formData()
-    const file = formData.get("file") as File
+    const formData = await request.formData();
+    const file = formData.get("file") as File;
 
     if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 })
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const fileType = file.type
-    const isImage = fileType.startsWith("image/")
-    const isPDF = fileType === "application/pdf"
+    const fileType = file.type;
+    const isImage = fileType.startsWith("image/");
+    const isPDF = fileType === "application/pdf" || file.name.endsWith(".pdf");
 
     if (!isImage && !isPDF) {
-      return NextResponse.json({ error: "File must be a PDF or image (JPG, PNG, GIF, WebP)" }, { status: 400 })
+      return NextResponse.json(
+        { error: "File must be an image or a PDF (JPG, JPEG, PNG, GIF, WebP, PDF)" },
+        { status: 400 },
+      );
     }
 
-    console.log(`[v0] Processing ${isImage ? "image" : "PDF"} with Gemini Vision API...`)
-    console.log("[v0] File name:", file.name, "Size:", file.size)
+    // Check for API key
+    if (!process.env.GROQ_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            "Groq API key not configured. Please add GROQ_API_KEY to your .env file.",
+        },
+        { status: 500 },
+      );
+    }
 
-    const buffer = await file.arrayBuffer()
+    const pagesToProcess: { page: number; base64Data: string; mimeType: string }[] = [];
 
-    const results = isImage
-      ? await extractTextFromImage(buffer, fileType, apiKey)
-      : await extractTextFromPDF(buffer, apiKey)
+    if (isImage) {
+      console.log(`[Groq OCR] Processing image...`);
+      const base64Data = await fileToBase64(file);
+      pagesToProcess.push({ page: 1, base64Data, mimeType: fileType });
+    } else {
+      console.log(`[Groq OCR] Processing PDF...`);
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      const pdfDoc = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+      const numPages = pdfDoc.numPages;
 
-    console.log("[v0] Processing complete, returning results")
-    return NextResponse.json({ results })
+      console.log(`[Groq OCR] PDF loaded successfully. Total pages: ${numPages}`);
+
+      // Process up to 10 pages to avoid server timeout / resource issues
+      for (let i = 1; i <= Math.min(numPages, 10); i++) {
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 }); // 1.5x scale is a great balance for OCR quality & size
+        
+        const canvas = createCanvas(viewport.width, viewport.height);
+        const context = canvas.getContext("2d");
+
+        await page.render({
+          canvasContext: context as any,
+          viewport: viewport,
+          canvas: canvas as any,
+        }).promise;
+
+        const buffer = await canvas.encode("png");
+        const base64Data = buffer.toString("base64");
+        
+        pagesToProcess.push({
+          page: i,
+          base64Data,
+          mimeType: "image/png"
+        });
+      }
+    }
+
+    const results: any[] = [];
+
+    for (const pageItem of pagesToProcess) {
+      console.log(`[Groq OCR] OCR on page ${pageItem.page}/${pagesToProcess.length}...`);
+      
+      const prompt = `You are an expert OCR and document transcription system. Your task is to extract ALL text from this image and reproduce it using Markdown + inline HTML so the output **exactly mirrors the original document's structure, layout, and alignment**.
+
+CRITICAL RULES — follow every one:
+1. Reproduce the text EXACTLY as written — every word, number, symbol, punctuation mark.
+2. Preserve the EXACT structure of the original document:
+   - Headings → use the appropriate Markdown heading level (# ## ### etc.) matching their visual hierarchy.
+   - Numbered lists → use Markdown numbered lists (1. 2. 3.).
+   - Bullet points → use Markdown bullet lists (- item). Always use the dash character.
+   - Tables → use Markdown table syntax (| col1 | col2 |) with alignment.
+   - Indented or nested content → use proper Markdown indentation / nesting.
+   - Paragraphs → separate with blank lines exactly as in the original.
+   - Line breaks within a block → preserve them.
+   - Bold / italic / underlined text → use **bold**, *italic*, or <u>underline</u> as appropriate.
+3. ALIGNMENT IS CRITICAL — preserve the visual alignment of every block:
+   - If text is centered in the original → wrap it in <div align="center">...</div>
+   - If text is right-aligned → wrap it in <div align="right">...</div>
+   - Left-aligned text needs no wrapper (it is the default).
+   - Titles and headings that are centered MUST be wrapped in a center-aligned div.
+4. For handwritten text, transcribe as accurately as possible. If a word is ambiguous, pick the most likely reading.
+5. Do NOT add any commentary, explanations, notes, or meta-text.
+6. Do NOT wrap the output in a code fence or add any prefix/suffix.
+7. Output ONLY the transcription of the document — nothing else.
+
+Begin transcription:`;
+
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "meta-llama/llama-4-scout-17b-16e-instruct",
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: prompt,
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${pageItem.mimeType};base64,${pageItem.base64Data}`,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Groq API returned status ${response.status} on page ${pageItem.page}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const extractedText = data.choices?.[0]?.message?.content || "";
+
+      results.push({
+        page: pageItem.page,
+        markdown: extractedText.trim() || "No text could be extracted from this page."
+      });
+    }
+
+    return NextResponse.json({ results });
   } catch (error) {
-    console.error("[v0] OCR processing error:", error instanceof Error ? error.message : String(error))
+    console.error(
+      "[Groq OCR] Processing error:",
+      error instanceof Error ? error.message : String(error),
+    );
+
+    // Handle rate limiting or too many requests
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes("429") || errorMessage.includes("limit")) {
+      return NextResponse.json(
+        {
+          error: "API rate limit exceeded. Please wait a moment and try again.",
+        },
+        { status: 429 },
+      );
+    }
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to process file" },
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to process file",
+      },
       { status: 500 },
-    )
+    );
   }
-}
-
-async function extractTextFromPDF(buffer: ArrayBuffer, apiKey: string) {
-  const base64PDF = Buffer.from(buffer).toString("base64")
-
-  console.log("[v0] Sending PDF to Gemini API for text extraction...")
-
-  const response = await retryWithBackoff(() =>
-    fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `You are an expert at reading and transcribing handwritten documents. Extract ALL text from this PDF with maximum accuracy. Follow these rules carefully:
-
-CRITICAL RULES:
-1. Read handwriting very carefully and precisely - prioritize accuracy over speed
-2. If uncertain about a character, provide your best interpretation with a [?] notation
-3. Preserve EXACT formatting and structure - maintain original line breaks where appropriate
-4. Identify section headers clearly (mark with "HEADING: " prefix)
-5. Preserve numbered lists and bullet points (use "• " for bullets)
-6. Maintain paragraphs as they appear in the document
-7. Include ALL text - do not omit anything
-8. For each page, start with "--- PAGE X ---" marker
-9. Preserve special characters, numbers, and punctuation exactly as written
-10. If there are corrections or strikethroughs, transcribe the corrected version
-
-ACCURACY TIPS:
-- Look at character shapes carefully to distinguish similar letters
-- Use context from surrounding words to resolve ambiguous characters
-- Pay special attention to proper nouns and names
-- Preserve original capitalization exactly as written
-- Note any unusual formatting or emphasis (underlines, boxes, etc.)
-
-Output format: Structured text with clear section organization.`,
-              },
-              {
-                inlineData: {
-                  mimeType: "application/pdf",
-                  data: base64PDF,
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          topK: 1,
-          topP: 1,
-          maxOutputTokens: 30000,
-        },
-      }),
-    }),
-  )
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") || ""
-    let errorMessage = `API returned status ${response.status}`
-
-    if (contentType.includes("application/json")) {
-      try {
-        const error = await response.json()
-        console.error("[v0] Gemini API error:", error)
-        errorMessage = `Gemini API error: ${JSON.stringify(error)}`
-      } catch {
-        const text = await response.text()
-        console.error("[v0] Gemini API error (non-JSON):", text)
-        errorMessage = `Gemini API error: ${text.substring(0, 200)}`
-      }
-    } else {
-      const text = await response.text()
-      console.error("[v0] Gemini API error (non-JSON response):", text.substring(0, 200))
-      errorMessage = `Gemini API error: ${text.substring(0, 200)}`
-    }
-
-    throw new Error(errorMessage)
-  }
-
-  const data = await response.json()
-
-  if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-    console.error("[v0] Invalid response format from Gemini:", data)
-    throw new Error("No text extracted from PDF")
-  }
-
-  const extractedText = data.candidates[0].content.parts[0].text
-
-  console.log("[v0] Text extraction successful, parsing content...")
-
-  // Parse the extracted text into pages
-  //@ts-ignore
-  const pages = extractedText.split(/--- PAGE \d+ ---/).filter((page) => page.trim())
-
-  //@ts-ignore
-  const results = pages.map((pageText, index) => {
-    const content = parseExtractedText(pageText)
-    return {
-      page: index + 1,
-      content,
-    }
-  })
-
-  return results
-}
-
-function parseExtractedText(text: string) {
-  const lines = text.split("\n").filter((line) => line.trim())
-  const content: any[] = []
-
-  const filteredLines = lines.filter((line) => {
-    const trimmed = line.trim().toLowerCase()
-    // Remove lines that are just quotes around noise words
-    const unquoted = trimmed.replace(/^["'`]+|["'`]+$/g, "").trim()
-
-    // Filter out common placeholder/noise words (with or without quotes)
-    const noiseWords = ["text", "image", "document", "page", "untitled", "unknown", "n/a", ""]
-    if (noiseWords.includes(unquoted)) {
-      return false
-    }
-
-    // Also filter out lines that are just single special characters
-    if (/^["'`\-_•*]+$/.test(trimmed)) {
-      return false
-    }
-
-    return true
-  })
-
-  let currentBulletList: string[] = []
-
-  for (const line of filteredLines) {
-    const trimmed = line.trim()
-
-    if (trimmed.startsWith("HEADING: ")) {
-      if (currentBulletList.length > 0) {
-        content.push({
-          type: "bullet-list",
-          items: currentBulletList,
-        })
-        currentBulletList = []
-      }
-      content.push({
-        type: "heading",
-        text: trimmed.replace("HEADING: ", ""),
-      })
-    } else if (trimmed.startsWith("• ")) {
-      currentBulletList.push(trimmed.replace("• ", ""))
-    } else if (
-      (trimmed.length < 50 && (trimmed === trimmed.toUpperCase() || /^\d+\.?\s+/.test(trimmed))) ||
-      /^#+\s/.test(trimmed)
-    ) {
-      if (currentBulletList.length > 0) {
-        content.push({
-          type: "bullet-list",
-          items: currentBulletList,
-        })
-        currentBulletList = []
-      }
-      content.push({
-        type: "heading",
-        text: trimmed.replace(/^#+\s/, ""),
-      })
-    } else if (/^[•\-*]\s/.test(trimmed)) {
-      currentBulletList.push(trimmed.replace(/^[•\-*]\s/, ""))
-    } else if (/^\d+\.\s/.test(trimmed)) {
-      currentBulletList.push(trimmed.replace(/^\d+\.\s/, ""))
-    } else {
-      if (currentBulletList.length > 0) {
-        content.push({
-          type: "bullet-list",
-          items: currentBulletList,
-        })
-        currentBulletList = []
-      }
-      if (trimmed) {
-        content.push({
-          type: "paragraph",
-          text: trimmed,
-        })
-      }
-    }
-  }
-
-  if (currentBulletList.length > 0) {
-    content.push({
-      type: "bullet-list",
-      items: currentBulletList,
-    })
-  }
-
-  return content.length > 0 ? content : [{ type: "text", text: text }]
-}
-
-async function extractTextFromImage(buffer: ArrayBuffer, mimeType: string, apiKey: string) {
-  const base64Image = Buffer.from(buffer).toString("base64")
-
-  console.log("[v0] Sending image to Gemini API for text extraction...")
-
-  const response = await retryWithBackoff(() =>
-    fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `You are an expert at reading and transcribing handwritten text in images. Extract ALL text with maximum accuracy. Follow these rules:
-
-CRITICAL RULES:
-1. Read handwriting very carefully and precisely - accuracy is paramount
-2. If uncertain about a character, provide your best interpretation with a [?] notation
-3. Preserve EXACT formatting and line breaks as they appear
-4. Identify headers and section titles (mark with "HEADING: " prefix)
-5. Preserve lists, indentation, and hierarchical structure
-6. Include ALL visible text without omission
-7. Maintain original capitalization and punctuation exactly
-8. Use "• " for bullet points and preserve numbered lists
-9. If text is crossed out or corrected, transcribe the corrected version
-10. Preserve special symbols and characters as written
-
-ACCURACY OPTIMIZATION:
-- Examine each letter carefully for accurate character recognition
-- Use surrounding context to resolve ambiguous or unclear handwriting
-- Pay attention to proper nouns, numbers, and technical terms
-- Preserve emphasis marks, underlines, or boxes around text
-- Note any drawings or non-text elements briefly
-
-Output: Structured text preserving the document's natural organization.`,
-              },
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: base64Image,
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          topK: 1,
-          topP: 1,
-          maxOutputTokens: 30000,
-        },
-      }),
-    }),
-  )
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") || ""
-    let errorMessage = `API returned status ${response.status}`
-
-    if (contentType.includes("application/json")) {
-      try {
-        const error = await response.json()
-        console.error("[v0] Gemini API error:", error)
-        errorMessage = `Gemini API error: ${JSON.stringify(error)}`
-      } catch {
-        const text = await response.text()
-        console.error("[v0] Gemini API error (non-JSON):", text)
-        errorMessage = `Gemini API error: ${text.substring(0, 200)}`
-      }
-    } else {
-      const text = await response.text()
-      console.error("[v0] Gemini API error (non-JSON response):", text.substring(0, 200))
-      errorMessage = `Gemini API error: ${text.substring(0, 200)}`
-    }
-
-    throw new Error(errorMessage)
-  }
-
-  const data = await response.json()
-
-  if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-    console.error("[v0] Invalid response format from Gemini:", data)
-    throw new Error("No text extracted from image")
-  }
-
-  const extractedText = data.candidates[0].content.parts[0].text
-
-  console.log("[v0] Text extraction successful, parsing content...")
-
-  // For images, treat as single page
-  const content = parseExtractedText(extractedText)
-  return [{ page: 1, content }]
 }

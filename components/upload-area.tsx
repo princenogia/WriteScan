@@ -72,7 +72,7 @@ export default function UploadArea({ onFileSelect, loading }: UploadAreaProps) {
             {loading ? "Processing your file..." : "Drop your PDF or image here"}
           </h3>
           <p className="text-sm text-muted-foreground mt-1">
-            {loading ? "Please wait while we extract the text" : "Supports PDF, JPG, PNG, GIF, WebP (up to 100MB)"}
+            {loading ? "Please wait while we extract the text" : "Supports PDF, JPG, PNG, GIF, WebP (PDF up to 20MB, Images up to 4MB)"}
           </p>
         </div>
 

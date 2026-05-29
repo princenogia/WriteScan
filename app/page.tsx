@@ -8,18 +8,14 @@ import ResultsDisplay from "@/components/results-display"
 import { Loader2, FileUp, Download, Moon, Sun } from 'lucide-react'
 import Image from "next/image"
 
-interface ExtractedText {
+interface ExtractedPage {
   page: number
-  content: {
-    type: "heading" | "paragraph" | "bullet-list" | "text"
-    text: string
-    items?: string[]
-  }[]
+  markdown: string
 }
 
 export default function Home() {
   const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState<ExtractedText[] | null>(null)
+  const [results, setResults] = useState<ExtractedPage[] | null>(null)
   const [error, setError] = useState("")
   const [isDark, setIsDark] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -42,14 +38,17 @@ export default function Home() {
   }
 
   const handleFileSelect = async (file: File) => {
-    if (file.size > 100 * 1024 * 1024) {
-      setError("File size must be less than 100MB")
-      return
+    const isPDF = file.type === "application/pdf" || file.name.endsWith(".pdf");
+    const maxSize = isPDF ? 20 * 1024 * 1024 : 4 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+      setError(isPDF ? "PDF file size must be less than 20MB" : "Image file size must be less than 4MB");
+      return;
     }
 
-    const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp"]
-    if (!allowedTypes.includes(file.type)) {
-      setError("Please upload a PDF or image file (JPG, PNG, GIF, WebP)")
+    const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+    if (!allowedTypes.includes(file.type) && !file.name.endsWith(".pdf")) {
+      setError("Please upload a PDF or an image file (PDF, JPG, JPEG, PNG, GIF, WebP)")
       return
     }
 
@@ -69,9 +68,9 @@ export default function Home() {
       if (!response.ok) {
         const errorData = await response.json()
         let errorMessage = errorData.error || "Failed to process file"
-        if (errorMessage.includes("429") || errorMessage.includes("RESOURCE_EXHAUSTED")) {
+        if (errorMessage.includes("429") || errorMessage.includes("rate limit") || errorMessage.includes("limit")) {
           errorMessage =
-            "API rate limit reached. Please wait a moment and try again. Free tier has usage limits - consider processing files one at a time."
+            "API rate limit reached. Please wait a moment and try again. Consider upgrading to a paid tier or spacing requests."
         }
         throw new Error(errorMessage)
       }
@@ -89,7 +88,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-b from-background via-secondary/20 to-background">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-background/95 backdrop-blur-xl border-b border-border/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Image 
@@ -97,7 +96,7 @@ export default function Home() {
                 alt="WriteScan Logo" 
                 width={200}
                 height={200}
-                className="h-24 w-auto object-contain"
+                className="h-12 w-auto object-contain"
               />
             </div>
             <button
@@ -112,7 +111,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {!results ? (
           <div className="space-y-8 fade-in">
             {/* Upload Section */}
@@ -124,8 +123,7 @@ export default function Home() {
                   <p className="text-destructive text-sm font-medium">{error}</p>
                   {error.includes("rate limit") && (
                     <p className="text-destructive/80 text-xs mt-2">
-                      Free tier quota: 15 requests per minute. Consider upgrading to Gemini API paid tier for higher
-                      limits.
+                      Free tier quota reached. Consider upgrading to a Groq API paid tier for higher limits.
                     </p>
                   )}
                 </div>
@@ -145,8 +143,8 @@ export default function Home() {
                 <div className="w-10 h-10 bg-primary/10 rounded-lg mb-3 group-hover:bg-primary/20 transition-smooth flex items-center justify-center">
                   <FileUp className="w-5 h-5 text-primary" />
                 </div>
-                <h3 className="font-semibold text-foreground mb-2">Large Files</h3>
-                <p className="text-sm text-muted-foreground">Support for PDFs and images up to 100MB</p>
+                <h3 className="font-semibold text-foreground mb-2">Supported Formats</h3>
+                <p className="text-sm text-muted-foreground">Support for PDFs up to 20MB and images up to 4MB</p>
               </Card>
               <Card className="p-6 border-border/50 bg-gradient-to-br from-card to-secondary/30 hover:border-primary/30 transition-smooth group">
                 <div className="w-10 h-10 bg-primary/10 rounded-lg mb-3 group-hover:bg-primary/20 transition-smooth flex items-center justify-center">
@@ -159,8 +157,8 @@ export default function Home() {
                 <div className="w-10 h-10 bg-primary/10 rounded-lg mb-3 group-hover:bg-primary/20 transition-smooth flex items-center justify-center">
                   <FileUp className="w-5 h-5 text-primary" />
                 </div>
-                <h3 className="font-semibold text-foreground mb-2">Page Organization</h3>
-                <p className="text-sm text-muted-foreground">Results organized by page for easy navigation</p>
+                <h3 className="font-semibold text-foreground mb-2">Groq Vision Engine</h3>
+                <p className="text-sm text-muted-foreground">Powered by Llama 4 Scout for rapid, accurate extraction</p>
               </Card>
             </div>
           </div>
