@@ -1,20 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createCanvas } from "@napi-rs/canvas";
-import path from "path";
-import { pathToFileURL } from "url";
 
 // @ts-ignore
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
-const workerPath = path.join(
-  process.cwd(),
-  "node_modules",
-  "pdfjs-dist",
-  "legacy",
-  "build",
-  "pdf.worker.mjs"
-);
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+// Disable worker for server-side usage (not needed in Node.js)
+pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
 // Convert file to base64 for Groq
 async function fileToBase64(file: File): Promise<string> {
@@ -63,9 +54,15 @@ export async function POST(request: NextRequest) {
     } else {
       console.log(`[Groq OCR] Processing PDF...`);
       const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
+      // pdfjs v5 requires a fresh copy of the ArrayBuffer
+      const data = new Uint8Array(arrayBuffer).slice();
       
-      const pdfDoc = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+      const pdfDoc = await pdfjsLib.getDocument({
+        data,
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        useSystemFonts: true,
+      }).promise;
       const numPages = pdfDoc.numPages;
 
       console.log(`[Groq OCR] PDF loaded successfully. Total pages: ${numPages}`);
