@@ -7,15 +7,9 @@ import { pathToFileURL } from "url";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
 // Set up worker path for pdfjs
-const workerPath = path.join(
-  process.cwd(),
-  "node_modules",
-  "pdfjs-dist",
-  "legacy",
-  "build",
-  "pdf.worker.mjs"
-);
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+// Disable worker threads to process PDFs synchronously on the server,
+// which is standard for Next.js API routes and avoids NAPI-RS path loading crashes on Windows.
+pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
 // Custom canvas factory for pdfjs in Node.js with @napi-rs/canvas
 class NodeCanvasFactory {
