@@ -1,11 +1,42 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createCanvas } from "@napi-rs/canvas";
+import path from "path";
+import { pathToFileURL } from "url";
 
 // @ts-ignore
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
-// Disable worker for server-side usage (not needed in Node.js)
-pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+// Set up worker path for pdfjs
+const workerPath = path.join(
+  process.cwd(),
+  "node_modules",
+  "pdfjs-dist",
+  "legacy",
+  "build",
+  "pdf.worker.mjs"
+);
+pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+
+// Custom canvas factory for pdfjs in Node.js with @napi-rs/canvas
+class NodeCanvasFactory {
+  create(width: number, height: number) {
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext("2d");
+    return { canvas, context };
+  }
+
+  reset(canvasAndContext: any, width: number, height: number) {
+    canvasAndContext.canvas.width = width;
+    canvasAndContext.canvas.height = height;
+  }
+
+  destroy(canvasAndContext: any) {
+    canvasAndContext.canvas = null;
+    canvasAndContext.context = null;
+  }
+}
+
+const canvasFactory = new NodeCanvasFactory();
 
 // Convert file to base64 for Groq
 async function fileToBase64(file: File): Promise<string> {
@@ -54,11 +85,11 @@ export async function POST(request: NextRequest) {
     } else {
       console.log(`[Groq OCR] Processing PDF...`);
       const arrayBuffer = await file.arrayBuffer();
-      // pdfjs v5 requires a fresh copy of the ArrayBuffer
       const data = new Uint8Array(arrayBuffer).slice();
       
       const pdfDoc = await pdfjsLib.getDocument({
         data,
+        canvasFactory,
         useWorkerFetch: false,
         isEvalSupported: false,
         useSystemFonts: true,
@@ -70,18 +101,16 @@ export async function POST(request: NextRequest) {
       // Process up to 10 pages to avoid server timeout / resource issues
       for (let i = 1; i <= Math.min(numPages, 10); i++) {
         const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 }); // 1.5x scale is a great balance for OCR quality & size
+        const viewport = page.getViewport({ scale: 1.5 });
         
-        const canvas = createCanvas(viewport.width, viewport.height);
-        const context = canvas.getContext("2d");
+        const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
 
         await page.render({
           canvasContext: context as any,
           viewport: viewport,
-          canvas: canvas as any,
         }).promise;
 
-        const buffer = await canvas.encode("png");
+        const buffer = await (canvas as any).encode("png");
         const base64Data = buffer.toString("base64");
         
         pagesToProcess.push({
