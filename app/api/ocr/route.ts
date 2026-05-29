@@ -20,7 +20,8 @@ const workerPath = path.join(
 );
 pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
 
-// Custom canvas factory for pdfjs in Node.js with @napi-rs/canvas
+// Custom canvas factory for pdfjs in Node.js with @napi-rs/canvas.
+// This is critical because PDF.js creates internal canvas elements for patterns, masks, and rendering.
 class NodeCanvasFactory {
   create(width: number, height: number) {
     const canvas = createCanvas(width, height);
@@ -88,33 +89,39 @@ export async function POST(request: NextRequest) {
     } else {
       console.log(`[Groq OCR] Processing PDF...`);
       const arrayBuffer = await file.arrayBuffer();
-      const data = new Uint8Array(arrayBuffer).slice();
+      const uint8Array = new Uint8Array(arrayBuffer);
       
+      console.log(`[Groq OCR] Loading PDF document with fake worker...`);
+      // Passing canvasFactory, useWorkerFetch: false, and useSystemFonts: false to avoid Windows type-validation crashes.
       const pdfDoc = await pdfjsLib.getDocument({
-        data,
+        data: uint8Array,
         canvasFactory,
         useWorkerFetch: false,
         isEvalSupported: false,
-        useSystemFonts: true,
+        useSystemFonts: false, // Critical: Disable native system font rendering lookup on Windows to prevent "Value is none of these types String, Path" crashes
       } as any).promise;
+      
       const numPages = pdfDoc.numPages;
-
       console.log(`[Groq OCR] PDF loaded successfully. Total pages: ${numPages}`);
 
       // Process up to 10 pages to avoid server timeout / resource issues
       for (let i = 1; i <= Math.min(numPages, 10); i++) {
+        console.log(`[Groq OCR] Rendering page ${i}...`);
         const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 });
+        const viewport = page.getViewport({ scale: 1.5 }); // 1.5x scale is a great balance for OCR quality & size
         
         const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
 
+        console.log(`[Groq OCR] Executing page.render for page ${i}...`);
         await page.render({
           canvasContext: context as any,
           viewport: viewport,
+          canvasFactory: canvasFactory as any,
           canvas: canvas as any,
         }).promise;
 
-        const buffer = await (canvas as any).encode("png");
+        console.log(`[Groq OCR] Encoding canvas to PNG buffer for page ${i}...`);
+        const buffer = await canvas.encode("png");
         const base64Data = buffer.toString("base64");
         
         pagesToProcess.push({
