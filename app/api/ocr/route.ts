@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
         useWorkerFetch: false,
         isEvalSupported: false,
         useSystemFonts: true,
-      }).promise;
+      } as any).promise;
       const numPages = pdfDoc.numPages;
 
       console.log(`[Groq OCR] PDF loaded successfully. Total pages: ${numPages}`);
@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
         await page.render({
           canvasContext: context as any,
           viewport: viewport,
+          canvas: canvas as any,
         }).promise;
 
         const buffer = await (canvas as any).encode("png");
