@@ -1,48 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createCanvas } from "@napi-rs/canvas";
-import path from "path";
-import { pathToFileURL } from "url";
 
-// @ts-ignore
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-
-// Set up worker path for pdfjs
-// In Node.js / Next.js server-side, PDF.js automatically disables background worker threads and runs
-// synchronously on the main thread (as a "fake worker"). This avoids NAPI-RS path loading and deserialization crashes on Windows.
-// However, the fake worker still requires the workerSrc option to be a valid path to dynamically load the worker's handler code.
-const workerPath = path.join(
-  process.cwd(),
-  "node_modules",
-  "pdfjs-dist",
-  "legacy",
-  "build",
-  "pdf.worker.mjs"
-);
-pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-
-// Custom canvas factory for pdfjs in Node.js with @napi-rs/canvas.
-// This is critical because PDF.js creates internal canvas elements for patterns, masks, and rendering.
-class NodeCanvasFactory {
-  create(width: number, height: number) {
-    const canvas = createCanvas(width, height);
-    const context = canvas.getContext("2d");
-    return { canvas, context };
-  }
-
-  reset(canvasAndContext: any, width: number, height: number) {
-    canvasAndContext.canvas.width = width;
-    canvasAndContext.canvas.height = height;
-  }
-
-  destroy(canvasAndContext: any) {
-    canvasAndContext.canvas = null;
-    canvasAndContext.context = null;
-  }
-}
-
-const canvasFactory = new NodeCanvasFactory();
-
-// Convert file to base64 for Groq
+// Convert file to base64 for Groq vision API
 async function fileToBase64(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -60,16 +18,17 @@ export async function POST(request: NextRequest) {
 
     const fileType = file.type;
     const isImage = fileType.startsWith("image/");
-    const isPDF = fileType === "application/pdf" || file.name.endsWith(".pdf");
 
-    if (!isImage && !isPDF) {
+    if (!isImage) {
       return NextResponse.json(
-        { error: "File must be an image or a PDF (JPG, JPEG, PNG, GIF, WebP, PDF)" },
+        {
+          error:
+            "File must be an image. PDFs are rendered client-side before being sent here.",
+        },
         { status: 400 },
       );
     }
 
-    // Check for API key
     if (!process.env.GROQ_API_KEY) {
       return NextResponse.json(
         {
@@ -80,64 +39,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const pagesToProcess: { page: number; base64Data: string; mimeType: string }[] = [];
+    console.log(
+      `[OCR] Processing image (${fileType}, ${(file.size / 1024).toFixed(1)} KB)...`,
+    );
+    const base64Data = await fileToBase64(file);
 
-    if (isImage) {
-      console.log(`[Groq OCR] Processing image...`);
-      const base64Data = await fileToBase64(file);
-      pagesToProcess.push({ page: 1, base64Data, mimeType: fileType });
-    } else {
-      console.log(`[Groq OCR] Processing PDF...`);
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      
-      console.log(`[Groq OCR] Loading PDF document with fake worker...`);
-      // Passing canvasFactory, useWorkerFetch: false, and useSystemFonts: false to avoid Windows type-validation crashes.
-      const pdfDoc = await pdfjsLib.getDocument({
-        data: uint8Array,
-        canvasFactory,
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        useSystemFonts: false, // Critical: Disable native system font rendering lookup on Windows to prevent "Value is none of these types String, Path" crashes
-      } as any).promise;
-      
-      const numPages = pdfDoc.numPages;
-      console.log(`[Groq OCR] PDF loaded successfully. Total pages: ${numPages}`);
-
-      // Process up to 10 pages to avoid server timeout / resource issues
-      for (let i = 1; i <= Math.min(numPages, 10); i++) {
-        console.log(`[Groq OCR] Rendering page ${i}...`);
-        const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 1.5 }); // 1.5x scale is a great balance for OCR quality & size
-        
-        const { canvas, context } = canvasFactory.create(viewport.width, viewport.height);
-
-        console.log(`[Groq OCR] Executing page.render for page ${i}...`);
-        await page.render({
-          canvasContext: context as any,
-          viewport: viewport,
-          canvasFactory: canvasFactory as any,
-          canvas: canvas as any,
-        }).promise;
-
-        console.log(`[Groq OCR] Encoding canvas to PNG buffer for page ${i}...`);
-        const buffer = await canvas.encode("png");
-        const base64Data = buffer.toString("base64");
-        
-        pagesToProcess.push({
-          page: i,
-          base64Data,
-          mimeType: "image/png"
-        });
-      }
-    }
-
-    const results: any[] = [];
-
-    for (const pageItem of pagesToProcess) {
-      console.log(`[Groq OCR] OCR on page ${pageItem.page}/${pagesToProcess.length}...`);
-      
-      const prompt = `You are an expert OCR and document transcription system. Your task is to extract ALL text from this image and reproduce it using Markdown + inline HTML so the output **exactly mirrors the original document's structure, layout, and alignment**.
+    const prompt = `You are an expert OCR and document transcription system. Your task is to extract ALL text from this image and reproduce it using Markdown + inline HTML so the output **exactly mirrors the original document's structure, layout, and alignment**.
 
 CRITICAL RULES — follow every one:
 1. Reproduce the text EXACTLY as written — every word, number, symbol, punctuation mark.
@@ -162,10 +69,12 @@ CRITICAL RULES — follow every one:
 
 Begin transcription:`;
 
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -174,54 +83,47 @@ Begin transcription:`;
             {
               role: "user",
               content: [
-                {
-                  type: "text",
-                  text: prompt,
-                },
+                { type: "text", text: prompt },
                 {
                   type: "image_url",
-                  image_url: {
-                    url: `data:${pageItem.mimeType};base64,${pageItem.base64Data}`,
-                  },
+                  image_url: { url: `data:${fileType};base64,${base64Data}` },
                 },
               ],
             },
           ],
         }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Groq API returned status ${response.status} on page ${pageItem.page}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      const extractedText = data.choices?.[0]?.message?.content || "";
-
-      results.push({
-        page: pageItem.page,
-        markdown: extractedText.trim() || "No text could be extracted from this page."
-      });
-    }
-
-    return NextResponse.json({ results });
-  } catch (error) {
-    console.error(
-      "[Groq OCR] Processing error:",
-      error instanceof Error ? error.message : String(error),
+      },
     );
 
-    // Handle rate limiting or too many requests
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage.includes("429") || errorMessage.includes("limit")) {
-      return NextResponse.json(
-        {
-          error: "API rate limit exceeded. Please wait a moment and try again.",
-        },
-        { status: 429 },
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[OCR] Groq API error: ${response.status}`, errorText);
+
+      if (response.status === 429) {
+        return NextResponse.json(
+          {
+            error:
+              "API rate limit exceeded. Please wait a moment and try again.",
+          },
+          { status: 429 },
+        );
+      }
+      throw new Error(
+        `Groq API returned status ${response.status}: ${errorText}`,
       );
     }
 
+    const data = await response.json();
+    const markdown = data.choices?.[0]?.message?.content?.trim() || "";
+
+    return NextResponse.json({
+      markdown: markdown || "No text could be extracted from this image.",
+    });
+  } catch (error) {
+    console.error(
+      "[OCR] Error:",
+      error instanceof Error ? error.message : String(error),
+    );
     return NextResponse.json(
       {
         error:

@@ -15,6 +15,7 @@ interface ExtractedPage {
 
 export default function Home() {
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState("")
   const [results, setResults] = useState<ExtractedPage[] | null>(null)
   const [error, setError] = useState("")
   const [isDark, setIsDark] = useState(false)
@@ -37,6 +38,69 @@ export default function Home() {
     setIsDark(!isDark)
   }
 
+  /**
+   * Render a PDF file's pages to PNG images in the browser using pdfjs-dist,
+   * then send each page image to the server for OCR.
+   */
+  const processPDF = async (file: File): Promise<ExtractedPage[]> => {
+    setProgress("Loading PDF...")
+    const pdfjsLib = await import("pdfjs-dist")
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
+
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+    const maxPages = Math.min(pdf.numPages, 10)
+    const results: ExtractedPage[] = []
+
+    for (let i = 1; i <= maxPages; i++) {
+      setProgress(`Processing page ${i} of ${maxPages}...`)
+
+      try {
+        const page = await pdf.getPage(i)
+        const viewport = page.getViewport({ scale: 2.0 })
+
+        const canvas = document.createElement("canvas")
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+        const ctx = canvas.getContext("2d")!
+
+        await page.render({ canvasContext: ctx, viewport, canvas } as any).promise
+
+        // Convert canvas to PNG blob
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error("Canvas to blob failed"))),
+            "image/png"
+          )
+        })
+
+        // Send page image to server for OCR
+        const formData = new FormData()
+        formData.append("file", blob, `page-${i}.png`)
+
+        const response = await fetch("/api/ocr", { method: "POST", body: formData })
+        const data = await response.json()
+
+        if (!response.ok) {
+          results.push({ page: i, markdown: `⚠️ ${data.error || "Failed to process page"}` })
+        } else {
+          results.push({ page: i, markdown: data.markdown })
+        }
+
+        // Clean up canvas memory
+        canvas.width = 0
+        canvas.height = 0
+      } catch (pageErr) {
+        results.push({
+          page: i,
+          markdown: `⚠️ Failed to process page ${i}: ${pageErr instanceof Error ? pageErr.message : String(pageErr)}`,
+        })
+      }
+    }
+
+    return results
+  }
+
   const handleFileSelect = async (file: File) => {
     const isPDF = file.type === "application/pdf" || file.name.endsWith(".pdf");
     const maxSize = isPDF ? 20 * 1024 * 1024 : 4 * 1024 * 1024;
@@ -55,32 +119,33 @@ export default function Home() {
     setLoading(true)
     setError("")
     setResults(null)
+    setProgress("")
 
     try {
-      const formData = new FormData()
-      formData.append("file", file)
+      if (isPDF) {
+        // PDF: render pages client-side → send images to server
+        const pdfResults = await processPDF(file)
+        setResults(pdfResults)
+      } else {
+        // Image: send directly to server
+        setProgress("Processing image...")
+        const formData = new FormData()
+        formData.append("file", file)
 
-      const response = await fetch("/api/ocr", {
-        method: "POST",
-        body: formData,
-      })
+        const response = await fetch("/api/ocr", { method: "POST", body: formData })
+        const data = await response.json()
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        let errorMessage = errorData.error || "Failed to process file"
-        if (errorMessage.includes("429") || errorMessage.includes("rate limit") || errorMessage.includes("limit")) {
-          errorMessage =
-            "API rate limit reached. Please wait a moment and try again. Consider upgrading to a paid tier or spacing requests."
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to process file")
         }
-        throw new Error(errorMessage)
-      }
 
-      const data = await response.json()
-      setResults(data.results)
+        setResults([{ page: 1, markdown: data.markdown }])
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred")
     } finally {
       setLoading(false)
+      setProgress("")
     }
   }
 
@@ -132,7 +197,9 @@ export default function Home() {
               {loading && (
                 <div className="mt-6 flex items-center justify-center gap-3 p-4 bg-primary/5 border border-primary/20 rounded-lg slide-up">
                   <Loader2 className="w-5 h-5 text-primary animate-spin" />
-                  <p className="text-sm text-foreground font-medium">Processing your file... This may take a moment.</p>
+                  <p className="text-sm text-foreground font-medium">
+                    {progress || "Processing your file... This may take a moment."}
+                  </p>
                 </div>
               )}
             </Card>
