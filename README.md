@@ -23,7 +23,7 @@
 
 ## Overview
 
-WriteScan is a modern web application that extracts text from handwritten notes, printed documents, PDFs, and images while **preserving the original document's structure and alignment**. It uses the Groq Vision API (Llama 4 Scout) to intelligently interpret documents and outputs clean, faithful Markdown — maintaining headings, bullet points, numbered lists, tables, bold/italic text, centered/right-aligned content, and more.
+WriteScan is a modern web application that extracts text from handwritten notes, printed documents, PDFs, and images while **preserving the original document's structure and alignment**. It uses the Groq Vision API (Qwen 3.6) to intelligently interpret documents and outputs clean, faithful Markdown — maintaining headings, bullet points, numbered lists, tables, bold/italic text, centered/right-aligned content, and more.
 
 Unlike simple OCR tools that dump flat plain text, WriteScan reproduces the document's visual hierarchy so the extracted text looks and reads like the original.
 
@@ -58,7 +58,7 @@ Unlike simple OCR tools that dump flat plain text, WriteScan reproduces the docu
 | **Markdown Rendering** | react-markdown + remark-gfm + rehype-raw | Render extracted text as formatted Markdown with HTML support |
 | **PDF Processing** | pdfjs-dist (Mozilla PDF.js) | Parse and render PDF pages server-side |
 | **Canvas Rendering** | @napi-rs/canvas | Server-side canvas for PDF page → image conversion |
-| **AI / OCR Engine** | Groq API (Llama 4 Scout 17B) | Vision-language model for text extraction |
+| **AI / OCR Engine** | Groq API (Qwen 3.6 27B) | Vision-language model for text extraction |
 | **Fonts** | Geist Sans + Geist Mono | Modern, clean typography |
 
 ---
@@ -92,7 +92,7 @@ Unlike simple OCR tools that dump flat plain text, WriteScan reproduces the docu
                        ▼
             ┌─────────────────────┐
             │   Groq Vision API   │
-            │  (Llama 4 Scout)    │
+            │   (Qwen 3.6 27B)    │
             │                     │
             │  Image → Markdown   │
             │  with alignment     │
@@ -155,11 +155,14 @@ Create a `.env` file in the project root:
 
 ```env
 GROQ_API_KEY=your_groq_api_key_here
+# Optional: defaults to qwen/qwen3.6-27b
+GROQ_OCR_MODEL=qwen/qwen3.6-27b
 ```
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GROQ_API_KEY` | ✅ Yes | Your Groq API key for the Llama 4 Scout vision model. Get one at [console.groq.com](https://console.groq.com/) |
+| `GROQ_API_KEY` | ✅ Yes | Your Groq API key. Get one at [console.groq.com](https://console.groq.com/) |
+| `GROQ_OCR_MODEL` | No | Groq vision model to use. Defaults to `qwen/qwen3.6-27b`. |
 
 > **Note:** The `.env` file is gitignored and will not be committed to the repository.
 
@@ -250,9 +253,9 @@ WriteScan/
 
 ## Key Design Decisions
 
-### Why Groq + Llama 4 Scout?
+### Why Groq + Qwen 3.6?
 
-Groq provides extremely fast inference for vision-language models. Llama 4 Scout 17B handles both printed and handwritten text well, and the free tier offers generous rate limits for development and light usage.
+Groq provides extremely fast inference for vision-language models. Qwen 3.6 27B handles both printed and handwritten text well, and the free tier offers generous rate limits for development and light usage.
 
 ### Why server-side PDF rendering?
 

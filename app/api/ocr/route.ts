@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+// Groq retired Llama 4 Scout for developer/free-tier accounts in July 2026.
+// Qwen 3.6 is a currently supported multimodal model for image OCR.
+const GROQ_OCR_MODEL = process.env.GROQ_OCR_MODEL ?? "qwen/qwen3.6-27b";
+
 // Convert file to base64 for Groq vision API
 async function fileToBase64(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
@@ -78,7 +82,7 @@ Begin transcription:`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "meta-llama/llama-4-scout-17b-16e-instruct",
+          model: GROQ_OCR_MODEL,
           messages: [
             {
               role: "user",
@@ -106,6 +110,15 @@ Begin transcription:`;
               "API rate limit exceeded. Please wait a moment and try again.",
           },
           { status: 429 },
+        );
+      }
+      if (response.status === 404) {
+        return NextResponse.json(
+          {
+            error:
+              `The configured Groq OCR model (${GROQ_OCR_MODEL}) is unavailable. Set GROQ_OCR_MODEL to a currently supported vision model.`,
+          },
+          { status: 502 },
         );
       }
       throw new Error(
