@@ -192,6 +192,35 @@
   text-align: right;
 }
 
+/* Side-by-side content emitted by the OCR prompt (e.g. title/date rows). */
+.ocr-content .ocr-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.25em 0;
+}
+
+.ocr-content .ocr-right {
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .ocr-content .ocr-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .ocr-content .ocr-right {
+    margin-left: 0;
+    text-align: left;
+    white-space: normal;
+  }
+}
+
 .ocr-content strong {
   color: var(--foreground);
   font-weight: 600;

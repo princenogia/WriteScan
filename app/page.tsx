@@ -225,7 +225,7 @@ export default function Home() {
                   <FileUp className="w-5 h-5 text-primary" />
                 </div>
                 <h3 className="font-semibold text-foreground mb-2">Groq Vision Engine</h3>
-                <p className="text-sm text-muted-foreground">Powered by Llama 4 Scout for rapid, accurate extraction</p>
+                <p className="text-sm text-muted-foreground">Powered by Qwen 3.6 for rapid, accurate extraction</p>
               </Card>
             </div>
           </div>
