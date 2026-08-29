@@ -152,6 +152,16 @@
   margin-bottom: 0.5em;
 }
 
+/* OCR headings must remain visibly distinct even when nested markup is used. */
+.ocr-content h1 *,
+.ocr-content h2 *,
+.ocr-content h3 *,
+.ocr-content h4 *,
+.ocr-content h5 *,
+.ocr-content h6 * {
+  font-weight: inherit;
+}
+
 .ocr-content h1 { font-size: 1.5em; }
 .ocr-content h2 { font-size: 1.3em; }
 .ocr-content h3 { font-size: 1.15em; }
