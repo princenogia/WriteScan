@@ -73,19 +73,26 @@ RULES — follow every one:
 4. For content that appears on the SAME visual line with a left item and a right item (for example, a job title and date), use this exact HTML on its own line:
    <div class="ocr-row"><span>left content</span><span class="ocr-right">right content</span></div>
    Do not put a <div> inside a Markdown paragraph or on the same line as other text.
-5. For a centered document header containing a name and contact details, use this exact HTML on its own lines:
+5. Every visually separate line MUST be either its own block HTML element or be separated from the next Markdown block by a blank line. A single Markdown newline is not enough because it will be rendered as a space.
+6. For Education entries, use one ocr-row for EACH printed line, preserving the source order. Put the qualification or institution in the left span and its matching date, CGPA, or percentage in the ocr-right span. Never combine multiple qualifications or institutions into one row, and never collect all dates in a separate group. Example:
+   <div class="ocr-row"><span><strong>Bachelor of Technology...</strong></span><span class="ocr-right">2021 – 2025</span></div>
+   <div class="ocr-row"><span>Delhi Institute...</span><span class="ocr-right">CGPA: 7.1</span></div>
+7. For Technical Skills, render each labeled category as its own block, with a bold label and the values after it. Use this exact HTML on its own line:
+   <div class="ocr-skill-line"><strong>Programming &amp; Technologies:</strong> HTML, CSS, ...</div>
+   Do not merge multiple skill categories into the same paragraph or line.
+8. For a centered document header containing a name and contact details, use this exact HTML on its own lines:
    <div class="ocr-document-header">
    <div class="ocr-document-title">NAME AS WRITTEN</div>
    <div class="ocr-contact-line">first contact · second contact · Portfolio · LinkedIn · GitHub</div>
    </div>
    Keep every contact item in the SAME ocr-contact-line. Do not use Markdown headings (#), Markdown bold (**), Markdown links, <br>, or nested alignment <div>s inside this header.
-6. For a true grid of rows and columns, use an HTML <table> with the same rows and columns as the document. Do not turn ordinary headings, labels, or sections into a table.
-7. Preserve the order, grouping, line breaks, blank space between blocks, bullet nesting, and emphasis. Do not merge separate lines or invent headings, lists, tables, links, or labels.
-8. For handwritten text, transcribe as accurately as possible. If a word is ambiguous, pick the most likely reading.
-9. Do NOT describe the document, summarize it, explain your process, list observations, provide improvement suggestions, or include reasoning of any kind.
-10. Do NOT output <think> tags, analysis, planning, or any other meta-text.
-11. Do NOT wrap the output in a code fence or add any prefix/suffix.
-12. Output ONLY the transcription of the document — nothing else.
+9. For a true grid of rows and columns, use an HTML <table> with the same rows and columns as the document. Do not turn ordinary headings, labels, or sections into a table.
+10. Preserve the order, grouping, line breaks, blank space between blocks, bullet nesting, and emphasis. Do not merge separate lines or invent headings, lists, tables, links, or labels.
+11. For handwritten text, transcribe as accurately as possible. If a word is ambiguous, pick the most likely reading.
+12. Do NOT describe the document, summarize it, explain your process, list observations, provide improvement suggestions, or include reasoning of any kind.
+13. Do NOT output <think> tags, analysis, planning, or any other meta-text.
+14. Do NOT wrap the output in a code fence or add any prefix/suffix.
+15. Output ONLY the transcription of the document — nothing else.
 
 Begin transcription:`;
 

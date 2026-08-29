@@ -228,6 +228,12 @@
   white-space: nowrap;
 }
 
+/* Labeled skill categories are separate source lines, not one paragraph. */
+.ocr-content .ocr-skill-line {
+  display: block;
+  margin: 0.25em 0;
+}
+
 @media (max-width: 480px) {
   .ocr-content .ocr-row {
     align-items: flex-start;
