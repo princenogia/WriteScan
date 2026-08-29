@@ -3,6 +3,10 @@ import { type NextRequest, NextResponse } from "next/server";
 // Groq retired Llama 4 Scout for developer/free-tier accounts in July 2026.
 // Qwen 3.6 is a currently supported multimodal model for image OCR.
 const GROQ_OCR_MODEL = process.env.GROQ_OCR_MODEL ?? "qwen/qwen3.6-27b";
+const GROQ_OCR_MODEL_OPTIONS =
+  GROQ_OCR_MODEL === "qwen/qwen3.6-27b"
+    ? { reasoning_effort: "none", reasoning_format: "hidden" }
+    : {};
 
 // Convert file to base64 for Groq vision API
 async function fileToBase64(file: File): Promise<string> {
@@ -48,9 +52,9 @@ export async function POST(request: NextRequest) {
     );
     const base64Data = await fileToBase64(file);
 
-    const prompt = `You are an expert OCR and document transcription system. Your task is to extract ALL text from this image and reproduce it using Markdown + inline HTML so the output **exactly mirrors the original document's structure, layout, and alignment**.
+    const prompt = `Transcribe this document. Return ONLY its extracted text, formatted with Markdown and inline HTML to mirror the original document's structure, layout, and alignment.
 
-CRITICAL RULES — follow every one:
+RULES — follow every one:
 1. Reproduce the text EXACTLY as written — every word, number, symbol, punctuation mark.
 2. Preserve the EXACT structure of the original document:
    - Headings → use the appropriate Markdown heading level (# ## ### etc.) matching their visual hierarchy.
@@ -67,9 +71,10 @@ CRITICAL RULES — follow every one:
    - Left-aligned text needs no wrapper (it is the default).
    - Titles and headings that are centered MUST be wrapped in a center-aligned div.
 4. For handwritten text, transcribe as accurately as possible. If a word is ambiguous, pick the most likely reading.
-5. Do NOT add any commentary, explanations, notes, or meta-text.
-6. Do NOT wrap the output in a code fence or add any prefix/suffix.
-7. Output ONLY the transcription of the document — nothing else.
+5. Do NOT describe the document, summarize it, explain your process, list observations, provide improvement suggestions, or include reasoning of any kind.
+6. Do NOT output <think> tags, analysis, planning, or any other meta-text.
+7. Do NOT wrap the output in a code fence or add any prefix/suffix.
+8. Output ONLY the transcription of the document — nothing else.
 
 Begin transcription:`;
 
@@ -83,6 +88,8 @@ Begin transcription:`;
         },
         body: JSON.stringify({
           model: GROQ_OCR_MODEL,
+          ...GROQ_OCR_MODEL_OPTIONS,
+          temperature: 0.2,
           messages: [
             {
               role: "user",
