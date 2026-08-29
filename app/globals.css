@@ -207,6 +207,27 @@
   white-space: nowrap;
 }
 
+/* Centered document title and contact row emitted by the OCR prompt. */
+.ocr-content .ocr-document-header {
+  margin: 0 0 1.25rem;
+  text-align: center;
+}
+
+.ocr-content .ocr-document-title {
+  color: var(--foreground);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.ocr-content .ocr-contact-line {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
 @media (max-width: 480px) {
   .ocr-content .ocr-row {
     align-items: flex-start;
@@ -217,6 +238,10 @@
   .ocr-content .ocr-right {
     margin-left: 0;
     text-align: left;
+    white-space: normal;
+  }
+
+  .ocr-content .ocr-contact-line {
     white-space: normal;
   }
 }

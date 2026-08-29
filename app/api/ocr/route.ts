@@ -73,13 +73,19 @@ RULES — follow every one:
 4. For content that appears on the SAME visual line with a left item and a right item (for example, a job title and date), use this exact HTML on its own line:
    <div class="ocr-row"><span>left content</span><span class="ocr-right">right content</span></div>
    Do not put a <div> inside a Markdown paragraph or on the same line as other text.
-5. For a true grid of rows and columns, use an HTML <table> with the same rows and columns as the document. Do not turn ordinary headings, labels, or sections into a table.
-6. Preserve the order, grouping, line breaks, blank space between blocks, bullet nesting, and emphasis. Do not merge separate lines or invent headings, lists, tables, links, or labels.
-7. For handwritten text, transcribe as accurately as possible. If a word is ambiguous, pick the most likely reading.
-8. Do NOT describe the document, summarize it, explain your process, list observations, provide improvement suggestions, or include reasoning of any kind.
-9. Do NOT output <think> tags, analysis, planning, or any other meta-text.
-10. Do NOT wrap the output in a code fence or add any prefix/suffix.
-11. Output ONLY the transcription of the document — nothing else.
+5. For a centered document header containing a name and contact details, use this exact HTML on its own lines:
+   <div class="ocr-document-header">
+   <div class="ocr-document-title">NAME AS WRITTEN</div>
+   <div class="ocr-contact-line">first contact · second contact · Portfolio · LinkedIn · GitHub</div>
+   </div>
+   Keep every contact item in the SAME ocr-contact-line. Do not use Markdown headings (#), Markdown bold (**), Markdown links, <br>, or nested alignment <div>s inside this header.
+6. For a true grid of rows and columns, use an HTML <table> with the same rows and columns as the document. Do not turn ordinary headings, labels, or sections into a table.
+7. Preserve the order, grouping, line breaks, blank space between blocks, bullet nesting, and emphasis. Do not merge separate lines or invent headings, lists, tables, links, or labels.
+8. For handwritten text, transcribe as accurately as possible. If a word is ambiguous, pick the most likely reading.
+9. Do NOT describe the document, summarize it, explain your process, list observations, provide improvement suggestions, or include reasoning of any kind.
+10. Do NOT output <think> tags, analysis, planning, or any other meta-text.
+11. Do NOT wrap the output in a code fence or add any prefix/suffix.
+12. Output ONLY the transcription of the document — nothing else.
 
 Begin transcription:`;
 
